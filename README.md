@@ -1,2 +1,2 @@
 # file-search
-CLI directory search tool
+CLI directory search tool in go
