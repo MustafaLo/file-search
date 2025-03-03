@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
-
 	"github.com/spf13/cobra"
 )
 
@@ -15,6 +14,10 @@ func getDirectoryFiles()([]string, error){
 	var files []string
 
 	err := filepath.WalkDir(directory, func(path string, d fs.DirEntry, err error) (error){
+		if _, found := excludedExtensions[filepath.Ext(path)]; found{
+			continue
+		}
+		
 		if !d.IsDir(){
 			files = append(files, path)
 		}
