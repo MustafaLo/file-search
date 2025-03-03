@@ -7,20 +7,31 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
+
+	"github.com/MustafaLo/file-search/config"
 	"github.com/spf13/cobra"
 )
+
 
 func getDirectoryFiles()([]string, error){
 	var files []string
 
 	err := filepath.WalkDir(directory, func(path string, d fs.DirEntry, err error) (error){
-		if _, found := excludedExtensions[filepath.Ext(path)]; found{
-			continue
+		if d.IsDir(){
+			if _, found := config.ExcludedDirs[d.Name()]; found {
+				return filepath.SkipDir 
+			}
+			return nil 
+		}
+
+		ext := filepath.Ext(d.Name())
+
+
+		if _, found := config.ExcludedExtensions[ext]; found{
+			return nil
 		}
 		
-		if !d.IsDir(){
-			files = append(files, path)
-		}
+		files = append(files, path)
 		return nil
 	})
 
