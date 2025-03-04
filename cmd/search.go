@@ -80,7 +80,7 @@ func searchFile(id int, jobs <-chan Job, results chan <- Result, wg *sync.WaitGr
 				results <- Result{
 					file_name: job.file_name, 
 					line_content: line,
-					line_number: line_number,
+					line_number: line_number + 1,
 				}
 			}
 		}
@@ -125,11 +125,11 @@ var searchCmd = &cobra.Command{
 	  results := make(chan Result, 10)
 
 	  //Replace with actual worker count
-	  workerCount := 5
+	  workerCount := len(file_paths)
 	  wg.Add(workerCount)
 
 	  //Start workers
-	  for w := 1; w <= workerCount; w++{
+	  for w := 0; w < workerCount; w++{
 		go searchFile(w, jobs, results, &wg)
 	  }
 
@@ -140,7 +140,7 @@ var searchCmd = &cobra.Command{
 
 
 	  //Distribute jobs
-	  for j := 0; j <= workerCount; j++{
+	  for j := 0; j < workerCount; j++{
 		name := file_paths[j]
 		content, err := getFileContent(name)
 		if err != nil{
@@ -165,7 +165,7 @@ var searchCmd = &cobra.Command{
 
 func init(){
 	searchCmd.Flags().StringVarP(&search_term, "term", "t", "", "search term for search command")
-	// searchCmd.MarkFlagRequired("term")
+	searchCmd.MarkFlagRequired("term")
 	searchCmd.Flags().StringVarP(&directory, "directory", "d", ".", "directory you would like to search in")
 }
 
