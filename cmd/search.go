@@ -59,6 +59,10 @@ func getFileContent(file_path string)([]string, error){
 	fileScanner.Split(bufio.ScanLines)
 
 	for fileScanner.Scan(){
+		//Ignoring any lines with no text
+		if fileScanner.Text() == ""{
+			continue
+		}
 		fileLines = append(fileLines, fileScanner.Text())
 	}
 
