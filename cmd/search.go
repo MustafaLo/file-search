@@ -6,9 +6,13 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
+	"sync"
+
 	"github.com/MustafaLo/file-search/config"
 	"github.com/spf13/cobra"
 )
@@ -44,7 +48,33 @@ func getDirectoryFiles()([]string, error){
 }
 
 func getFileContent(file_path string)([]string, error){
-	return []string{}, nil
+	var fileLines []string
+
+	readFile, err := os.Open(file_path)
+	if err != nil{
+		return nil, err
+	}
+
+	fileScanner := bufio.NewScanner(readFile)
+	fileScanner.Split(bufio.ScanLines)
+
+	for fileScanner.Scan(){
+		fileLines = append(fileLines, fileScanner.Text())
+	}
+
+	readFile.Close()
+
+	return fileLines, nil
+}
+
+//worker function
+func searchFile(id int, jobs <-chan Job, results chan <- Result, wg *sync.WaitGroup){
+
+}
+
+//collect results worker function
+func collectResults(results <- chan Result, wg *sync.WaitGroup){
+	
 }
 
 
@@ -67,13 +97,33 @@ var searchCmd = &cobra.Command{
 	Short: "search a keyword",
 	Long:  `Use this command to search for a keyword within your directory`,
 	Run: func(cmd *cobra.Command, args []string) {
-	  files, err := getDirectoryFiles()
+	  file_paths, err := getDirectoryFiles()
 	  if err != nil{
 		fmt.Printf("Error retrieving files from directory: %v", err)
 		return
 	  }
+ 
+	//   var wg sync.WaitGroup
+	//   jobs := make(chan Job, 10)
+	//   results := make(chan Result, 10)
 
-	  
+	// for _, path := range file_paths{
+	// 	fmt.Println(path)
+	// }
+
+	fileContent, err := getFileContent(file_paths[1])
+	for lineNumber, line := range fileContent{
+		fmt.Printf("\nLine #%d %s", lineNumber, line)
+	}
+
+	  //Start workers
+
+	  //Start collecting results
+
+	  //Distribute jobs
+
+
+
 
 	  
 	},
