@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/MustafaLo/file-search/config"
@@ -59,10 +60,6 @@ func getFileContent(file_path string)([]string, error){
 	fileScanner.Split(bufio.ScanLines)
 
 	for fileScanner.Scan(){
-		//Ignoring any lines with no text
-		if fileScanner.Text() == ""{
-			continue
-		}
 		fileLines = append(fileLines, fileScanner.Text())
 	}
 
@@ -73,12 +70,29 @@ func getFileContent(file_path string)([]string, error){
 
 //worker function
 func searchFile(id int, jobs <-chan Job, results chan <- Result, wg *sync.WaitGroup){
+	defer wg.Done()
+	//Ensures that jobs are distributed evenly (more or less) among workers
+	//Each worker does approx jobCount / workerCount jobs
+	for job := range jobs{
 
+		for line_number, line := range job.file_content{
+			if strings.Contains(line, search_term){
+				results <- Result{
+					file_name: job.file_name, 
+					line_content: line,
+					line_number: line_number,
+				}
+			}
+		}
+	}
 }
 
 //collect results worker function
 func collectResults(results <- chan Result, wg *sync.WaitGroup){
-	
+	defer wg.Done()
+	for result := range results{
+		fmt.Printf("\nFile: %s  Line #%d:  %s", result.file_name, result.line_number, result.line_content)
+	}
 }
 
 
@@ -91,7 +105,6 @@ type Result struct{
 	file_name string
 	line_content string
 	line_number int
-	search_term string
 }
 
 var search_term string
@@ -107,24 +120,41 @@ var searchCmd = &cobra.Command{
 		return
 	  }
  
-	//   var wg sync.WaitGroup
-	//   jobs := make(chan Job, 10)
-	//   results := make(chan Result, 10)
+	  var wg sync.WaitGroup
+	  jobs := make(chan Job, 10)
+	  results := make(chan Result, 10)
 
-	// for _, path := range file_paths{
-	// 	fmt.Println(path)
-	// }
-
-	fileContent, err := getFileContent(file_paths[1])
-	for lineNumber, line := range fileContent{
-		fmt.Printf("\nLine #%d %s", lineNumber, line)
-	}
+	  //Replace with actual worker count
+	  workerCount := 5
+	  wg.Add(workerCount)
 
 	  //Start workers
+	  for w := 1; w <= workerCount; w++{
+		go searchFile(w, jobs, results, &wg)
+	  }
 
 	  //Start collecting results
+	  var resultsWg sync.WaitGroup
+	  resultsWg.Add(1) //Only need to add 1 to results wait group since only starting one go routine for collecting results
+	  go collectResults(results, &resultsWg)
+
 
 	  //Distribute jobs
+	  for j := 0; j <= workerCount; j++{
+		name := file_paths[j]
+		content, err := getFileContent(name)
+		if err != nil{
+			fmt.Printf("Error retrieving file content for %s: %v", name, err)
+			continue
+		}
+		jobs <- Job{file_name: name, file_content: content}
+	  }
+	  close(jobs)
+	  wg.Wait()
+	  close(results)
+
+	  //Ensure all results are collected
+	  resultsWg.Wait()
 
 
 
