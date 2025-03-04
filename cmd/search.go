@@ -1,13 +1,14 @@
 //underscores => variables
 //camelCase => functions
 
+//worker pool blog -> https://rksurwase.medium.com/efficient-concurrency-in-go-a-deep-dive-into-the-worker-pool-pattern-for-batch-processing-73cac5a5bdca
+
 package cmd
 
 import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
-
 	"github.com/MustafaLo/file-search/config"
 	"github.com/spf13/cobra"
 )
@@ -42,6 +43,23 @@ func getDirectoryFiles()([]string, error){
 	return files, nil
 }
 
+func getFileContent(file_path string)([]string, error){
+	return []string{}, nil
+}
+
+
+type Job struct{
+	file_name string
+	file_content []string
+}
+
+type Result struct{
+	file_name string
+	line_content string
+	line_number int
+	search_term string
+}
+
 var search_term string
 var directory string
 var searchCmd = &cobra.Command{
@@ -55,9 +73,9 @@ var searchCmd = &cobra.Command{
 		return
 	  }
 
-	  for _, file_path := range(files){
-		fmt.Println(file_path)
-	  }
+	  
+
+	  
 	},
 }
 
