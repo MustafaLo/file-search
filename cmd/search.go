@@ -13,10 +13,16 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/MustafaLo/file-search/config"
 	"github.com/spf13/cobra"
 )
+
+func timeTrack(start time.Time, name string) {
+    elapsed := time.Since(start)
+    fmt.Printf("\n\n%s took %s", name, elapsed)
+}
 
 
 func getDirectoryFiles()([]string, error){
@@ -87,14 +93,29 @@ func searchFile(id int, jobs <-chan Job, results chan <- Result, wg *sync.WaitGr
 	}
 }
 
-//collect results worker function
-func collectResults(results <- chan Result, wg *sync.WaitGroup){
+func collectResults(results <-chan Result, wg *sync.WaitGroup) {
 	defer wg.Done()
-	for result := range results{
-		fmt.Printf("\nFile: %s  Line #%d:  %s", result.file_name, result.line_number, result.line_content)
-	}
-}
+	fmt.Println("\n====================== 🔍 SEARCH RESULTS 🔍 ======================")
 
+	count := 0
+	for result := range results {
+		count++
+		trimmedContent := strings.TrimSpace(result.line_content) // Trim whitespace
+
+		// Highlight search term in the result
+		highlightedContent := strings.ReplaceAll(trimmedContent, search_term, config.Colors["red"]+search_term+config.Colors["reset"])
+
+		fmt.Printf("\n📂 File: %-20s  📍 Line: %-5d\n   👉 %s\n", 
+			result.file_name, result.line_number, highlightedContent)
+		fmt.Println("---------------------------------------------------------------")
+	}
+
+	if count == 0 {
+		fmt.Println("\n❌ No results found.")
+	}
+
+	fmt.Println("\n================================================================")
+}
 
 type Job struct{
 	file_name string
@@ -114,6 +135,8 @@ var searchCmd = &cobra.Command{
 	Short: "search a keyword",
 	Long:  `Use this command to search for a keyword within your directory`,
 	Run: func(cmd *cobra.Command, args []string) {
+	  defer timeTrack(time.Now(), "Search")
+
 	  file_paths, err := getDirectoryFiles()
 	  if err != nil{
 		fmt.Printf("Error retrieving files from directory: %v", err)
@@ -125,7 +148,7 @@ var searchCmd = &cobra.Command{
 	  results := make(chan Result, 10)
 
 	  //Replace with actual worker count
-	  workerCount := len(file_paths)
+	  workerCount := 10
 	  wg.Add(workerCount)
 
 	  //Start workers
@@ -139,8 +162,10 @@ var searchCmd = &cobra.Command{
 	  go collectResults(results, &resultsWg)
 
 
+	  jobCount := len(file_paths)
+
 	  //Distribute jobs
-	  for j := 0; j < workerCount; j++{
+	  for j := 0; j < jobCount; j++{
 		name := file_paths[j]
 		content, err := getFileContent(name)
 		if err != nil{
