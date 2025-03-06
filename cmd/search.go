@@ -80,9 +80,9 @@ func searchFile(id int, jobs <-chan Job, results chan <- Result, wg *sync.WaitGr
 	//Ensures that jobs are distributed evenly (more or less) among workers
 	//Each worker does approx jobCount / workerCount jobs
 	for job := range jobs{
-
 		for line_number, line := range job.file_content{
 			if strings.Contains(line, search_term){
+				// time.Sleep(5 * time.Second)
 				results <- Result{
 					file_name: job.file_name, 
 					line_content: line,
@@ -105,7 +105,7 @@ func collectResults(results <-chan Result, wg *sync.WaitGroup) {
 		// Highlight search term in the result
 		highlightedContent := strings.ReplaceAll(trimmedContent, search_term, config.Colors["red"]+search_term+config.Colors["reset"])
 
-		fmt.Printf("\n📂 File: %-20s  📍 Line: %-5d\n   👉 %s\n", 
+		fmt.Printf("\n📂 File: %-20s  📍 Line# %-5d\n   👉 Line:  %s\n", 
 			result.file_name, result.line_number, highlightedContent)
 		fmt.Println("---------------------------------------------------------------")
 	}
@@ -144,11 +144,13 @@ var searchCmd = &cobra.Command{
 	  }
  
 	  var wg sync.WaitGroup
-	  jobs := make(chan Job, 10)
-	  results := make(chan Result, 10)
+
+	  jobCount := len(file_paths)
+	  jobs := make(chan Job)
+	  results := make(chan Result)
 
 	  //Replace with actual worker count
-	  workerCount := 10
+	  workerCount := 5
 	  wg.Add(workerCount)
 
 	  //Start workers
@@ -162,9 +164,7 @@ var searchCmd = &cobra.Command{
 	  go collectResults(results, &resultsWg)
 
 
-	  jobCount := len(file_paths)
-
-	  //Distribute jobs
+	//  Distribute jobs
 	  for j := 0; j < jobCount; j++{
 		name := file_paths[j]
 		content, err := getFileContent(name)
