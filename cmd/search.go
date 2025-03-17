@@ -104,7 +104,7 @@ func collectResults(results <-chan Result, cancel context.CancelFunc, wg *sync.W
 		if count >= 11{
 			//Signals to shut down jobs channel (within start consumer)
 			cancel()
-			break
+			continue
 		}
 
 		trimmedContent := strings.TrimSpace(result.line_content) // Trim whitespace
