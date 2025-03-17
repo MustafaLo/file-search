@@ -1,12 +1,13 @@
 //underscores => variables
 //camelCase => functions
 
-//worker pool blog -> https://rksurwase.medium.com/efficient-concurrency-in-go-a-deep-dive-into-the-worker-pool-pattern-for-batch-processing-73cac5a5bdca
-
+// worker pool blog -> https://rksurwase.medium.com/efficient-concurrency-in-go-a-deep-dive-into-the-worker-pool-pattern-for-batch-processing-73cac5a5bdca
+// closing go routines blog -> https://callistaenterprise.se/blogg/teknik/2019/10/05/go-worker-cancellation/
 package cmd
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io/fs"
 	"os"
@@ -82,30 +83,36 @@ func searchFile(id int, jobs <-chan Job, results chan <- Result, wg *sync.WaitGr
 	for job := range jobs{
 		for line_number, line := range job.file_content{
 			if strings.Contains(line, search_term){
-				// time.Sleep(5 * time.Second)
+				time.Sleep(100 * time.Millisecond)
 				results <- Result{
 					file_name: job.file_name, 
 					line_content: line,
 					line_number: line_number + 1,
 				}
-			}
+			}	
 		}
 	}
 }
 
-func collectResults(results <-chan Result, wg *sync.WaitGroup) {
+func collectResults(results <-chan Result, cancel context.CancelFunc, wg *sync.WaitGroup) {
 	defer wg.Done()
 	fmt.Println("\n====================== 🔍 SEARCH RESULTS 🔍 ======================")
 
 	count := 0
 	for result := range results {
 		count++
+		if count >= 11{
+			//Signals to shut down jobs channel (within start consumer)
+			cancel()
+			break
+		}
+
 		trimmedContent := strings.TrimSpace(result.line_content) // Trim whitespace
 
 		// Highlight search term in the result
 		highlightedContent := strings.ReplaceAll(trimmedContent, search_term, config.Colors["red"]+search_term+config.Colors["reset"])
 
-		fmt.Printf("\n📂 File: %-20s  📍 Line# %-5d\n   👉 Line:  %s\n", 
+		fmt.Printf("\n📂 File: %-20s  📍 Line #%-5d\n   👉 Line:  %s\n", 
 			result.file_name, result.line_number, highlightedContent)
 		fmt.Println("---------------------------------------------------------------")
 	}
@@ -116,6 +123,21 @@ func collectResults(results <-chan Result, wg *sync.WaitGroup) {
 
 	fmt.Println("\n================================================================")
 }
+
+func startConsumer(ingest <- chan Job, jobs chan <- Job, ctx context.Context){
+	for{
+		select {
+		case job := <-ingest:
+			jobs <- job
+		case <-ctx.Done():
+			fmt.Println("Consumer received cancellation signal, closing jobsChan!")
+			close(jobs)
+			fmt.Println("Consumer closed jobsChan")
+			return
+		}
+	}
+}
+
 
 type Job struct{
 	file_name string
@@ -143,14 +165,24 @@ var searchCmd = &cobra.Command{
 		return
 	  }
  
+	  //Set up waitgroup and cancellation context
 	  var wg sync.WaitGroup
+	  ctx, cancel := context.WithCancel(context.Background())
 
 	  jobCount := len(file_paths)
+
+	  //Need this channel as a proxy between jobs and results in order to close jobs channel and stop workers gracefully
+	  ingest := make(chan Job)
+	  
+	  //Channel to ingest jobs (files in directories)
 	  jobs := make(chan Job)
+
+	  //Channel that will recieve results from search as we find matches
 	  results := make(chan Result)
 
-	  //Replace with actual worker count
-	  workerCount := 5
+	  //Changing workercount will make results appear in batches (faster) since 
+	  //multiples workers are processing different files at the same time
+	  workerCount := 1
 	  wg.Add(workerCount)
 
 	  //Start workers
@@ -161,10 +193,13 @@ var searchCmd = &cobra.Command{
 	  //Start collecting results
 	  var resultsWg sync.WaitGroup
 	  resultsWg.Add(1) //Only need to add 1 to results wait group since only starting one go routine for collecting results
-	  go collectResults(results, &resultsWg)
+	  go collectResults(results, cancel, &resultsWg)
 
+	  //Start Consumer
+	  go startConsumer(ingest, jobs, ctx)
 
-	//  Distribute jobs
+	  //Distribute jobs
+	  //Distribute jobs into ingest first to act as a proxy (ingest -> jobs -> results)
 	  for j := 0; j < jobCount; j++{
 		name := file_paths[j]
 		content, err := getFileContent(name)
@@ -172,18 +207,14 @@ var searchCmd = &cobra.Command{
 			fmt.Printf("Error retrieving file content for %s: %v", name, err)
 			continue
 		}
-		jobs <- Job{file_name: name, file_content: content}
+		ingest <- Job{file_name: name, file_content: content}
 	  }
-	  close(jobs)
+	  cancel()
 	  wg.Wait()
 	  close(results)
 
 	  //Ensure all results are collected
 	  resultsWg.Wait()
-
-
-
-
 	  
 	},
 }
