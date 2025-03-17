@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/MustafaLo/file-search/config"
@@ -76,37 +77,45 @@ func getFileContent(file_path string)([]string, error){
 }
 
 //worker function
-func searchFile(id int, jobs <-chan Job, results chan <- Result, wg *sync.WaitGroup){
+func searchFile(id int, ctx context.Context, cancel context.CancelFunc, jobs <-chan Job, results chan <- Result, counter *int32, wg *sync.WaitGroup){
 	defer wg.Done()
 	//Ensures that jobs are distributed evenly (more or less) among workers
 	//Each worker does approx jobCount / workerCount jobs
 	for job := range jobs{
-		for line_number, line := range job.file_content{
-			if strings.Contains(line, search_term){
-				time.Sleep(100 * time.Millisecond)
-				results <- Result{
-					file_name: job.file_name, 
-					line_content: line,
-					line_number: line_number + 1,
-				}
-			}	
+		select {
+		case <- ctx.Done():
+			return
+		default:
 		}
+			for line_number, line := range job.file_content{
+				if strings.Contains(line, search_term){
+					time.Sleep(100 * time.Millisecond)
+					newCount := atomic.AddInt32(counter, 1)
+					fmt.Println(newCount)
+					if newCount >= 20{
+						cancel()
+						return
+					}
+					select {
+					case results <- Result{
+						file_name: job.file_name, 
+						line_content: line,
+						line_number: line_number + 1,
+					}:
+					case <-ctx.Done():
+						return
+					}
+			
+				}	
+			}
 	}
 }
 
-func collectResults(results <-chan Result, cancel context.CancelFunc, wg *sync.WaitGroup) {
+func collectResults(results <-chan Result, wg *sync.WaitGroup) {
 	defer wg.Done()
 	fmt.Println("\n====================== 🔍 SEARCH RESULTS 🔍 ======================")
 
-	count := 0
 	for result := range results {
-		count++
-		if count >= 11{
-			//Signals to shut down jobs channel (within start consumer)
-			cancel()
-			continue
-		}
-
 		trimmedContent := strings.TrimSpace(result.line_content) // Trim whitespace
 
 		// Highlight search term in the result
@@ -117,26 +126,27 @@ func collectResults(results <-chan Result, cancel context.CancelFunc, wg *sync.W
 		fmt.Println("---------------------------------------------------------------")
 	}
 
-	if count == 0 {
-		fmt.Println("\n❌ No results found.")
-	}
+	// if count == 0 {
+	// 	fmt.Println("\n❌ No results found.")
+	// }
 
 	fmt.Println("\n================================================================")
 }
 
-func startConsumer(ingest <- chan Job, jobs chan <- Job, ctx context.Context){
-	for{
-		select {
-		case job := <-ingest:
-			jobs <- job
-		case <-ctx.Done():
-			fmt.Println("Consumer received cancellation signal, closing jobsChan!")
-			close(jobs)
-			fmt.Println("Consumer closed jobsChan")
-			return
-		}
-	}
-}
+// func startConsumer(ingest <- chan Job, jobs chan <- Job, ctx context.Context){
+// 	for{
+// 		select {
+// 		case job := <-ingest:
+// 			jobs <- job
+// 		case <-ctx.Done():
+// 			fmt.Println("Consumer received cancellation signal, closing jobsChan!")
+// 			close(jobs)
+// 			fmt.Println("Consumer closed jobsChan")
+// 			return
+// 		}
+// 	}
+// }
+
 
 
 type Job struct{
@@ -164,15 +174,19 @@ var searchCmd = &cobra.Command{
 		fmt.Printf("Error retrieving files from directory: %v", err)
 		return
 	  }
+
+	  var counter int32 = 0
  
 	  //Set up waitgroup and cancellation context
 	  var wg sync.WaitGroup
+
 	  ctx, cancel := context.WithCancel(context.Background())
+	  defer cancel()
 
 	  jobCount := len(file_paths)
 
 	  //Need this channel as a proxy between jobs and results in order to close jobs channel and stop workers gracefully
-	  ingest := make(chan Job)
+	//   ingest := make(chan Job)
 	  
 	  //Channel to ingest jobs (files in directories)
 	  jobs := make(chan Job)
@@ -187,29 +201,42 @@ var searchCmd = &cobra.Command{
 
 	  //Start workers
 	  for w := 0; w < workerCount; w++{
-		go searchFile(w, jobs, results, &wg)
+		go searchFile(w, ctx, cancel, jobs, results, &counter, &wg)
 	  }
 
 	  //Start collecting results
 	  var resultsWg sync.WaitGroup
 	  resultsWg.Add(1) //Only need to add 1 to results wait group since only starting one go routine for collecting results
-	  go collectResults(results, cancel, &resultsWg)
+	  go collectResults(results, &resultsWg)
 
 	  //Start Consumer
-	  go startConsumer(ingest, jobs, ctx)
+	//   go startConsumer(ingest, jobs, ctx)
 
 	  //Distribute jobs
 	  //Distribute jobs into ingest first to act as a proxy (ingest -> jobs -> results)
 	  for j := 0; j < jobCount; j++{
-		name := file_paths[j]
-		content, err := getFileContent(name)
-		if err != nil{
-			fmt.Printf("Error retrieving file content for %s: %v", name, err)
-			continue
+		select {
+		case <- ctx.Done():
+			break
+		default:
+			name := file_paths[j]
+			content, err := getFileContent(name)
+			if err != nil{
+				fmt.Printf("Error retrieving file content for %s: %v", name, err)
+				continue
+			}
+			// ingest <- Job{file_name: name, file_content: content,}
+
+
+			select {
+			case jobs <- Job{file_name: name, file_content: content}:
+			case <-ctx.Done():
+				break
+			}
+			
 		}
-		ingest <- Job{file_name: name, file_content: content}
 	  }
-	  cancel()
+	  close(jobs)
 	  wg.Wait()
 	  close(results)
 
