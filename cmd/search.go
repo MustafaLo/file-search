@@ -14,7 +14,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/MustafaLo/file-search/config"
@@ -89,58 +88,60 @@ func searchFile(id int, ctx context.Context, cancel context.CancelFunc, jobs <-c
 		}
 			for line_number, line := range job.file_content{
 				if strings.Contains(line, search_term){
-					//Adding delay to make results come in slower (looks cooler)
-					time.Sleep(100 * time.Millisecond)
-
-					//Atomic counter is a counter shared among all workers. This means all workers will know how many results have
-					//came in
-					// newCount := atomic.AddInt32(counter, 1)
-					// if newCount >= 11{
-					// 	//Call cancel function to trigger ctx.Done() for all workers
-					// 	cancel()
+					// select {
+					// case results <- Result{
+					// 	file_name: job.file_name, 
+					// 	line_content: line,
+					// 	line_number: line_number + 1,
+					// }:
+					// case <-ctx.Done():
 					// 	return
 					// }
+
 					select {
+					case <- ctx.Done():
+						return
 					case results <- Result{
 						file_name: job.file_name, 
 						line_content: line,
 						line_number: line_number + 1,
 					}:
-					case <-ctx.Done():
-						return
 					}
+	
 			
 				}	
 			}
 	}
 
-	if atomic.LoadInt32(counter) == 0 {
-		fmt.Println("\n❌ No results found.")
-	}
 }
 
 func collectResults(results <-chan Result, cancel context.CancelFunc, wg *sync.WaitGroup) {
 	defer wg.Done()
 	fmt.Println("\n====================== 🔍 SEARCH RESULTS 🔍 ======================")
 
-	count := 0
+	threshold := 10
+	collected := make([]Result, 0, threshold)
 	for result := range results {
-		count++
-		if count >= 11{
-			cancel()
-			fmt.Println("Threshold reached")
-			return
+		if len(collected) < threshold{
+			collected = append(collected, result)
+
+			if len(collected) == threshold{
+				cancel()
+			}
 		}
-		trimmedContent := strings.TrimSpace(result.line_content) // Trim whitespace
+	}
+
+	for number, result := range collected{
+		 // Trim whitespace
+		trimmedContent := strings.TrimSpace(result.line_content)
 
 		// Highlight search term in the result
 		highlightedContent := strings.ReplaceAll(trimmedContent, search_term, config.Colors["red"]+search_term+config.Colors["reset"])
 
-		fmt.Printf("\n📂 File: %-20s  📍 Line #%-5d\n   👉 Line:  %s\n", 
-			result.file_name, result.line_number, highlightedContent)
+		fmt.Printf("\n %d 📂 File: %-20s  📍 Line #%-5d\n   👉 Line:  %s\n", 
+			number + 1, result.file_name, result.line_number, highlightedContent)
 		fmt.Println("---------------------------------------------------------------")
 	}
-
 
 	fmt.Println("\n================================================================")
 }
@@ -189,11 +190,11 @@ var searchCmd = &cobra.Command{
 	  jobs := make(chan Job)
 
 	  //Channel that will recieve results from search as we find matches
-	  results := make(chan Result)
+	  results := make(chan Result, 100)
 
 	  //Changing workercount will make results appear in batches (faster) since 
 	  //multiples workers are processing different files at the same time
-	  workerCount := 2
+	  workerCount := 10
 	  wg.Add(workerCount)
 
 	  //Start workers
