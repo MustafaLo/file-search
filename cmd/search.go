@@ -89,13 +89,17 @@ func searchFile(id int, ctx context.Context, cancel context.CancelFunc, jobs <-c
 		}
 			for line_number, line := range job.file_content{
 				if strings.Contains(line, search_term){
+					//Adding delay to make results come in slower (looks cooler)
 					time.Sleep(100 * time.Millisecond)
-					newCount := atomic.AddInt32(counter, 1)
-					fmt.Println(newCount)
-					if newCount >= 20{
-						cancel()
-						return
-					}
+
+					//Atomic counter is a counter shared among all workers. This means all workers will know how many results have
+					//came in
+					// newCount := atomic.AddInt32(counter, 1)
+					// if newCount >= 11{
+					// 	//Call cancel function to trigger ctx.Done() for all workers
+					// 	cancel()
+					// 	return
+					// }
 					select {
 					case results <- Result{
 						file_name: job.file_name, 
@@ -109,13 +113,24 @@ func searchFile(id int, ctx context.Context, cancel context.CancelFunc, jobs <-c
 				}	
 			}
 	}
+
+	if atomic.LoadInt32(counter) == 0 {
+		fmt.Println("\n❌ No results found.")
+	}
 }
 
-func collectResults(results <-chan Result, wg *sync.WaitGroup) {
+func collectResults(results <-chan Result, cancel context.CancelFunc, wg *sync.WaitGroup) {
 	defer wg.Done()
 	fmt.Println("\n====================== 🔍 SEARCH RESULTS 🔍 ======================")
 
+	count := 0
 	for result := range results {
+		count++
+		if count >= 11{
+			cancel()
+			fmt.Println("Threshold reached")
+			return
+		}
 		trimmedContent := strings.TrimSpace(result.line_content) // Trim whitespace
 
 		// Highlight search term in the result
@@ -126,27 +141,9 @@ func collectResults(results <-chan Result, wg *sync.WaitGroup) {
 		fmt.Println("---------------------------------------------------------------")
 	}
 
-	// if count == 0 {
-	// 	fmt.Println("\n❌ No results found.")
-	// }
 
 	fmt.Println("\n================================================================")
 }
-
-// func startConsumer(ingest <- chan Job, jobs chan <- Job, ctx context.Context){
-// 	for{
-// 		select {
-// 		case job := <-ingest:
-// 			jobs <- job
-// 		case <-ctx.Done():
-// 			fmt.Println("Consumer received cancellation signal, closing jobsChan!")
-// 			close(jobs)
-// 			fmt.Println("Consumer closed jobsChan")
-// 			return
-// 		}
-// 	}
-// }
-
 
 
 type Job struct{
@@ -175,19 +172,19 @@ var searchCmd = &cobra.Command{
 		return
 	  }
 
-	  var counter int32 = 0
  
 	  //Set up waitgroup and cancellation context
 	  var wg sync.WaitGroup
 
+	  //Set up results counter
+	  var counter int32 = 0
+
+	  //Set up cancellation function (to cancel workers)
 	  ctx, cancel := context.WithCancel(context.Background())
-	  defer cancel()
 
 	  jobCount := len(file_paths)
 
-	  //Need this channel as a proxy between jobs and results in order to close jobs channel and stop workers gracefully
-	//   ingest := make(chan Job)
-	  
+
 	  //Channel to ingest jobs (files in directories)
 	  jobs := make(chan Job)
 
@@ -196,7 +193,7 @@ var searchCmd = &cobra.Command{
 
 	  //Changing workercount will make results appear in batches (faster) since 
 	  //multiples workers are processing different files at the same time
-	  workerCount := 1
+	  workerCount := 2
 	  wg.Add(workerCount)
 
 	  //Start workers
@@ -207,17 +204,16 @@ var searchCmd = &cobra.Command{
 	  //Start collecting results
 	  var resultsWg sync.WaitGroup
 	  resultsWg.Add(1) //Only need to add 1 to results wait group since only starting one go routine for collecting results
-	  go collectResults(results, &resultsWg)
+	  go collectResults(results, cancel, &resultsWg)
 
-	  //Start Consumer
-	//   go startConsumer(ingest, jobs, ctx)
 
 	  //Distribute jobs
 	  //Distribute jobs into ingest first to act as a proxy (ingest -> jobs -> results)
+	  jobloop:
 	  for j := 0; j < jobCount; j++{
 		select {
 		case <- ctx.Done():
-			break
+			break jobloop
 		default:
 			name := file_paths[j]
 			content, err := getFileContent(name)
@@ -225,17 +221,16 @@ var searchCmd = &cobra.Command{
 				fmt.Printf("Error retrieving file content for %s: %v", name, err)
 				continue
 			}
-			// ingest <- Job{file_name: name, file_content: content,}
-
 
 			select {
 			case jobs <- Job{file_name: name, file_content: content}:
 			case <-ctx.Done():
-				break
+				break jobloop
 			}
-			
 		}
 	  }
+
+	  cancel()
 	  close(jobs)
 	  wg.Wait()
 	  close(results)
