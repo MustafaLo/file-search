@@ -76,7 +76,7 @@ func getFileContent(file_path string)([]string, error){
 }
 
 //worker function
-func searchFile(id int, ctx context.Context, cancel context.CancelFunc, jobs <-chan Job, results chan <- Result, counter *int32, wg *sync.WaitGroup){
+func searchFile(id int, ctx context.Context, jobs <-chan Job, results chan <- Result, counter *int32, wg *sync.WaitGroup){
 	defer wg.Done()
 	//Ensures that jobs are distributed evenly (more or less) among workers
 	//Each worker does approx jobCount / workerCount jobs
@@ -119,13 +119,12 @@ func collectResults(results <-chan Result, cancel context.CancelFunc, wg *sync.W
 	defer wg.Done()
 	fmt.Println("\n====================== 🔍 SEARCH RESULTS 🔍 ======================")
 
-	threshold := 10
-	collected := make([]Result, 0, threshold)
+	collected := make([]Result, 0, limit)
 	for result := range results {
-		if len(collected) < threshold{
+		if len(collected) < limit{
 			collected = append(collected, result)
 
-			if len(collected) == threshold{
+			if len(collected) == limit{
 				cancel()
 			}
 		}
@@ -160,6 +159,7 @@ type Result struct{
 
 var search_term string
 var directory string
+var limit int
 var searchCmd = &cobra.Command{
 	Use:   "search",
 	Short: "search a keyword",
@@ -183,9 +183,6 @@ var searchCmd = &cobra.Command{
 	  //Set up cancellation function (to cancel workers)
 	  ctx, cancel := context.WithCancel(context.Background())
 
-	  jobCount := len(file_paths)
-
-
 	  //Channel to ingest jobs (files in directories)
 	  jobs := make(chan Job)
 
@@ -194,12 +191,12 @@ var searchCmd = &cobra.Command{
 
 	  //Changing workercount will make results appear in batches (faster) since 
 	  //multiples workers are processing different files at the same time
-	  workerCount := 10
+	  workerCount := 1
 	  wg.Add(workerCount)
 
 	  //Start workers
 	  for w := 0; w < workerCount; w++{
-		go searchFile(w, ctx, cancel, jobs, results, &counter, &wg)
+		go searchFile(w, ctx, jobs, results, &counter, &wg)
 	  }
 
 	  //Start collecting results
@@ -209,7 +206,7 @@ var searchCmd = &cobra.Command{
 
 
 	  //Distribute jobs
-	  //Distribute jobs into ingest first to act as a proxy (ingest -> jobs -> results)
+	  jobCount := len(file_paths)
 	  jobloop:
 	  for j := 0; j < jobCount; j++{
 		select {
@@ -246,5 +243,6 @@ func init(){
 	searchCmd.Flags().StringVarP(&search_term, "term", "t", "", "search term for search command")
 	searchCmd.MarkFlagRequired("term")
 	searchCmd.Flags().StringVarP(&directory, "directory", "d", ".", "directory you would like to search in")
+	searchCmd.Flags().IntVarP(&limit, "limit", "l", 10, "limit number of results to")
 }
 
