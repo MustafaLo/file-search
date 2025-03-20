@@ -6,17 +6,14 @@
 package cmd
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/MustafaLo/file-search/config"
+	"github.com/MustafaLo/file-search/utils"
 	"github.com/spf13/cobra"
 )
 
@@ -26,54 +23,7 @@ func timeTrack(start time.Time, name string) {
 }
 
 
-func getDirectoryFiles()([]string, error){
-	var files []string
 
-	err := filepath.WalkDir(directory, func(path string, d fs.DirEntry, err error) (error){
-		if d.IsDir(){
-			if _, found := config.ExcludedDirs[d.Name()]; found {
-				return filepath.SkipDir 
-			}
-			return nil 
-		}
-
-		ext := filepath.Ext(d.Name())
-
-
-		if _, found := config.ExcludedExtensions[ext]; found{
-			return nil
-		}
-		
-		files = append(files, path)
-		return nil
-	})
-
-	if err != nil{
-		return nil, err
-	}
-
-	return files, nil
-}
-
-func getFileContent(file_path string)([]string, error){
-	var fileLines []string
-
-	readFile, err := os.Open(file_path)
-	if err != nil{
-		return nil, err
-	}
-
-	fileScanner := bufio.NewScanner(readFile)
-	fileScanner.Split(bufio.ScanLines)
-
-	for fileScanner.Scan(){
-		fileLines = append(fileLines, fileScanner.Text())
-	}
-
-	readFile.Close()
-
-	return fileLines, nil
-}
 
 //worker function
 func searchFile(id int, ctx context.Context, jobs <-chan Job, results chan <- Result, counter *int32, wg *sync.WaitGroup){
@@ -88,16 +38,6 @@ func searchFile(id int, ctx context.Context, jobs <-chan Job, results chan <- Re
 		}
 			for line_number, line := range job.file_content{
 				if strings.Contains(line, search_term){
-					// select {
-					// case results <- Result{
-					// 	file_name: job.file_name, 
-					// 	line_content: line,
-					// 	line_number: line_number + 1,
-					// }:
-					// case <-ctx.Done():
-					// 	return
-					// }
-
 					select {
 					case <- ctx.Done():
 						return
@@ -107,8 +47,6 @@ func searchFile(id int, ctx context.Context, jobs <-chan Job, results chan <- Re
 						line_number: line_number + 1,
 					}:
 					}
-	
-			
 				}	
 			}
 	}
@@ -158,22 +96,22 @@ type Result struct{
 }
 
 var search_term string
-var directory string
+var search_dir string
 var limit int
 var searchCmd = &cobra.Command{
 	Use:   "search",
 	Short: "search a keyword",
-	Long:  `Use this command to search for a keyword within your directory`,
+	Long:  `Use this command to search for a keyword within your search_dir`,
 	Run: func(cmd *cobra.Command, args []string) {
 	  defer timeTrack(time.Now(), "Search")
 
-	  file_paths, err := getDirectoryFiles()
+	  file_paths, err := utils.GetDirectoryFiles(search_dir)
 	  if err != nil{
-		fmt.Printf("Error retrieving files from directory: %v", err)
+		fmt.Printf("Error retrieving files from search_dir: %v", err)
 		return
 	  }
 
- 
+	  fmt.Println(file_paths)
 	  //Set up waitgroup and cancellation context
 	  var wg sync.WaitGroup
 
@@ -214,7 +152,7 @@ var searchCmd = &cobra.Command{
 			break jobloop
 		default:
 			name := file_paths[j]
-			content, err := getFileContent(name)
+			content, err := utils.GetFileContent(name)
 			if err != nil{
 				fmt.Printf("Error retrieving file content for %s: %v", name, err)
 				continue
@@ -242,7 +180,7 @@ var searchCmd = &cobra.Command{
 func init(){
 	searchCmd.Flags().StringVarP(&search_term, "term", "t", "", "search term for search command")
 	searchCmd.MarkFlagRequired("term")
-	searchCmd.Flags().StringVarP(&directory, "directory", "d", ".", "directory you would like to search in")
+	searchCmd.Flags().StringVarP(&search_dir, "search_dir", "d", ".", "search_dir you would like to search in")
 	searchCmd.Flags().IntVarP(&limit, "limit", "l", 10, "limit number of results to")
 }
 
