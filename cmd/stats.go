@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/MustafaLo/file-search/utils"
@@ -97,6 +98,29 @@ func getModifiedFiles(directory_information []os.FileInfo)(os.FileInfo, os.FileI
 	return newest_file, oldest_file, nil
 }
 
+func getMostCommonFileType(directory_information []os.FileInfo)(string, error){
+	filetype_counts := make(map[string]int)
+	max_filetype, min_count := "", 0
+
+	for _, file_information := range directory_information{
+		ext := filepath.Ext(file_information.Name())
+		filetype_counts[ext] += 1
+		if filetype_counts[ext] > min_count{
+			max_filetype = ext
+			min_count = filetype_counts[ext]
+		}
+
+	}
+
+	if max_filetype == ""{
+		return "", errors.New("Unable to find most common file type")
+	}
+
+	return max_filetype, nil
+
+}
+
+
 var stats_dir string
 var statsCmd = &cobra.Command{
 	Use: "stats",
@@ -140,8 +164,20 @@ var statsCmd = &cobra.Command{
 		fmt.Printf("Most Recent file: %s\n", recent_modified_file.Name())
 		fmt.Printf("Least Recent file: %s\n", oldest_modified_file.Name())
 
-		
+		directory_structure, err := utils.GetDirectoryStructure(stats_dir)
+		if err != nil{
+			fmt.Printf("Error retrieving directory structure: %v", err)
+		}
 
+		fmt.Println(directory_structure)
+
+		max_file_type, err := getMostCommonFileType(dir_information)
+		if err != nil{
+			fmt.Printf("Error getting most common file type: %v", err)
+		}
+
+		fmt.Println(max_file_type)
+		
 
 	},
 }
