@@ -57,3 +57,12 @@ func GetDirectoryFiles(directory string)([]string, error){
 
 	return files, nil
 }
+
+func GetFileInformation(file_path string)(os.FileInfo, error){
+	file_info, err := os.Stat(file_path)
+	if err != nil{
+		return nil, err
+	}
+
+	return file_info, err
+}
