@@ -28,10 +28,10 @@ func printDirectoryStats(fileStructure string, numFiles int, largestFile string,
 
 	// Cool ASCII header
 	header := `
-	=====================================
-	📂 DIRECTORY STATISTICS 📂
-	=====================================
-	`
+=====================================
+📂 DIRECTORY STATISTICS 📂
+=====================================
+`
 
 	// Print all statistics with nice formatting
 	fmt.Println(header)
@@ -41,8 +41,8 @@ func printDirectoryStats(fileStructure string, numFiles int, largestFile string,
 	fmt.Println()
 	fmt.Printf("📊 Number of Files: %d\n\n", numFiles)
 
-	fmt.Printf("📌 Largest File:       %s (%s)\n", largestFile, largestSize)
-	fmt.Printf("📌 Smallest File:      %s (%s)\n\n", smallestFile, smallestSize)
+	fmt.Printf("📌 Largest File:       %s (%d)\n", largestFile, largestSize)
+	fmt.Printf("📌 Smallest File:      %s (%d)\n\n", smallestFile, smallestSize)
 
 	fmt.Printf("📂 Most Common File Type:  %s (%d files)\n\n", commonFileType, commonFileCount)
 
