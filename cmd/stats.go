@@ -22,8 +22,8 @@ Stats about directory:
 - Least recently modified file
 */
 
-func printDirectoryStats(fileStructure string, numFiles int, largestFile string, largestSize string, 
-	smallestFile string, smallestSize string, commonFileType string, commonFileCount int, 
+func printDirectoryStats(fileStructure string, numFiles int, largestFile string, largestSize int64, 
+	smallestFile string, smallestSize int64, commonFileType string, commonFileCount int, 
 	mostRecentFile string, mostRecentTime string, leastRecentFile string, leastRecentTime string) {
 
 	// Cool ASCII header
@@ -98,7 +98,7 @@ func getModifiedFiles(directory_information []os.FileInfo)(os.FileInfo, os.FileI
 	return newest_file, oldest_file, nil
 }
 
-func getMostCommonFileType(directory_information []os.FileInfo)(string, error){
+func getMostCommonFileType(directory_information []os.FileInfo)(string, int, error){
 	filetype_counts := make(map[string]int)
 	max_filetype, min_count := "", 0
 
@@ -113,10 +113,10 @@ func getMostCommonFileType(directory_information []os.FileInfo)(string, error){
 	}
 
 	if max_filetype == ""{
-		return "", errors.New("Unable to find most common file type")
+		return "", 0, errors.New("Unable to find most common file type")
 	}
 
-	return max_filetype, nil
+	return max_filetype, filetype_counts[max_filetype], nil
 
 }
 
@@ -142,41 +142,48 @@ var statsCmd = &cobra.Command{
 			dir_information = append(dir_information, file_information)
 		}
 
-		for _, info := range dir_information{
-			fmt.Println(info.Size())
-			fmt.Println(info.ModTime())
-			fmt.Println()
-		}
+		// for _, info := range dir_information{
+		// 	fmt.Println(info.Size())
+		// 	fmt.Println(info.ModTime())
+		// 	fmt.Println()
+		// }
 
 		min_file, max_file, err := getExtremesFileSizes(dir_information)
 		if err != nil{
 			fmt.Printf("Error retrieving minimum/maximum files: %v", err)
 		}
 
-		fmt.Printf("Minfile: %d\n", min_file.Size())
-		fmt.Printf("Maxfile: %d\n", max_file.Size())
+		// fmt.Printf("Minfile: %d\n", min_file.Size())
+		// fmt.Printf("Maxfile: %d\n", max_file.Size())
 
 		recent_modified_file, oldest_modified_file, err := getModifiedFiles(dir_information)
 		if err != nil{
 			fmt.Printf("Error retrieving newest/oldest modified files: %v", err)
 		}
 
-		fmt.Printf("Most Recent file: %s\n", recent_modified_file.Name())
-		fmt.Printf("Least Recent file: %s\n", oldest_modified_file.Name())
+		// fmt.Printf("Most Recent file: %s\n", recent_modified_file.Name())
+		// fmt.Printf("Least Recent file: %s\n", oldest_modified_file.Name())
 
 		directory_structure, err := utils.GetDirectoryStructure(stats_dir)
 		if err != nil{
 			fmt.Printf("Error retrieving directory structure: %v", err)
 		}
 
-		fmt.Println(directory_structure)
+		// fmt.Println(directory_structure)
 
-		max_file_type, err := getMostCommonFileType(dir_information)
+		max_file_type, max_file_type_count, err := getMostCommonFileType(dir_information)
 		if err != nil{
 			fmt.Printf("Error getting most common file type: %v", err)
 		}
 
-		fmt.Println(max_file_type)
+		// fmt.Println(max_file_type)
+
+		printDirectoryStats(directory_structure, len(file_paths), 
+							max_file.Name(), max_file.Size(), 
+							min_file.Name(), min_file.Size(),
+							max_file_type, max_file_type_count,
+							recent_modified_file.Name(), recent_modified_file.ModTime().Format("Mon, Jan 2, 2006 at 3:04 PM"),
+							oldest_modified_file.Name(), oldest_modified_file.ModTime().Format("Mon, Jan 2, 2006 at 3:04 PM"))
 		
 
 	},
